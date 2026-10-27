@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レセコンもどき(学習用)</title>
+<style>
+:root{--bg:#fff;--fg:#222;--mut:#666;--bd:#ccc;--ac:#1a6fb5;--hd:#f0f4f8}
+@media(prefers-color-scheme:dark){:root{--bg:#1c1e21;--fg:#e6e6e6;--mut:#999;--bd:#444;--ac:#6db3f2;--hd:#262a2f}}
+body{font:14px/1.5 system-ui,"Hiragino Sans","Yu Gothic",sans-serif;background:var(--bg);color:var(--fg);margin:0;padding:12px;max-width:980px;margin:auto}
+h1{font-size:18px;margin:4px 0 8px}h2{font-size:15px;margin:16px 0 6px}
+nav button,.btn{background:var(--hd);color:var(--fg);border:1px solid var(--bd);padding:5px 12px;border-radius:5px;cursor:pointer;font:inherit}
+nav button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+input,select{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:4px;padding:3px 5px;font:inherit}
+table{border-collapse:collapse;width:100%;margin:4px 0}th,td{border:1px solid var(--bd);padding:3px 6px;text-align:left}th{background:var(--hd)}
+td.n,th.n{text-align:right}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.mut{color:var(--mut);font-size:12px}.tot{font-weight:bold;font-size:16px}.warn{color:#c0392b}
+.scroll{overflow-x:auto}
+#mtab{table-layout:fixed;min-width:620px}#mtab input,#mtab select{width:100%;box-sizing:border-box}
+#mtab td{padding:2px 4px}
+.rc{border:2px solid var(--fg);padding:6px;max-width:760px}.rc table td,.rc table th{padding:2px 5px;font-size:13px}
+.rc .big{font-size:17px;font-weight:bold;letter-spacing:.3em}.pg{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 12px}.pg label{display:flex;flex-direction:column;font-size:12px;color:var(--mut)}
+@media print{nav,h1,.noprint,body>p{display:none!important}body{padding:0}.rc{border-width:1px}}
+</style>
+</head>
+<body>
+<h1>レセコンもどき(学習用)</h1>
+<p class="mut">点数は「マスタ」タブで自分で入力します。このブラウザには何も保存されません。作業前に「保存/読込」タブでファイルを開き、終わったら保存してください。　<b id="stat"></b></p>
+<nav class="row"><button data-t="case" class="on">症例入力</button><button data-t="master">マスタ</button><button data-t="pinfo">患者・施設</button><button data-t="rcpt">レセプト出力</button><button data-t="data">保存/読込</button></nav>
+
+<section id="case">
+ <div class="row">
+  <label>患者名 <input id="pname" size="12"></label>
+  <label>負担割合 <select id="ratio"><option value="0.1">1割</option><option value="0.2">2割</option><option value="0.3" selected>3割</option></select></label>
+  <label>食事標準負担(円/食) <input id="mealpay" type="number" value="510" style="width:70px"></label>
+ </div>
+ <h2>行為の追加</h2>
+ <div class="row">
+  <label>日付 <input id="ldate" type="date"></label>
+  <label>項目 <select id="litem"></select></label>
+  <label>数量 <input id="lqty" type="number" value="1" min="0" step="any" style="width:80px"></label>
+  <label>メモ <input id="lmemo" size="14"></label>
+  <button class="btn" id="add">追加</button>
+ </div>
+ <details open style="margin:6px 0;padding:6px;border:1px dashed var(--bd);border-radius:5px">
+  <summary>項目がマスタに無いとき: ここで新規登録</summary>
+  <div class="row">
+   <label>区分 <select id="ncat"></select></label>
+   <label>名称 <input id="nname" size="22"></label>
+   <label>種別 <select id="ntype"><option value="pt">点数</option><option value="drug">薬剤(単価円)</option><option value="meal">食事(円)</option></select></label>
+   <label>点数/単価 <input id="nval" type="number" step="any" style="width:90px"></label>
+   <label>診療識別 <select id="nsk"></select></label>
+   <button class="btn" id="nreg">登録のみ</button>
+   <button class="btn" id="nregadd">登録して上の日付・数量で追加</button>
+  </div>
+ </details>
+ <p class="mut">数量: 点数項目=回数 / 薬剤=使用数量(内服は 錠数×日数) / 食事=食数</p>
+ <div class="scroll"><table id="lines"></table></div>
+ <h2>レセプト風集計</h2>
+ <div class="scroll"><table id="sum"></table></div>
+ <div id="result"></div>
+</section>
+
+<section id="pinfo" hidden>
+ <div class="row"><label>様式 <select id="kind"><option>入院外</option><option>入院</option></select></label></div>
+ <div class="pg" id="pgrid"></div>
+ <p class="mut">空欄でも出力できます。未入力の欄はレセプト出力タブに一覧表示されます。患者名・負担割合は症例入力タブにあります。</p>
+</section>
+<section id="rcpt" hidden>
+ <div class="row noprint"><button class="btn" onclick="window.print()">印刷 / PDF保存</button></div>
+ <div id="chk" class="warn noprint"></div>
+ <div id="rview"></div>
+</section>
+<section id="master" hidden>
+ <p class="mut">種別: 点数=1回あたり点数 / 薬剤=単価(円)を入力、点数換算は五捨五超入 / 食事=円</p>
+ <div class="row"><button class="btn" id="madd">行を追加</button><button class="btn warn" id="mclr">マスタを全削除</button></div>
+ <div class="scroll"><table id="mtab"></table></div>
+</section>
+
+<section id="data" hidden>
+ <div class="row">
+  <button class="btn" id="open">ファイルを開く</button>
+  <button class="btn" id="saveb">上書き保存</button>
+  <button class="btn" id="saveas">名前を付けて保存</button>
+  <button class="btn warn" id="reset">全消去(初期状態へ)</button>
+  <input type="file" id="imp" accept=".json" hidden>
+ </div>
+ <p class="mut">Chrome/Edge: 開いたファイルに以降の変更が自動で上書き保存されます(初回に書き込み許可を求められます)。<br>
+ Firefox/Safari: 「保存」はダウンロードになります。次回はそのファイルを「ファイルを開く」で読み込んでください。<br>
+ ファイルはUSBメモリやクラウドフォルダに置いて持ち歩けます。共用PCではダウンロードフォルダのファイルを消すのを忘れずに。</p>
+</section>
+
+<script>
+const CATS=["初・再診","入院料等","医学管理","投薬","注射","処置","手術","麻酔","検査","画像診断","病理診断","リハビリ","食事","その他"];
+const SEED=[];
+
+const fresh=()=>({master:JSON.parse(JSON.stringify(SEED)),lines:[],pname:"",ratio:"0.3",mealpay:510,n:1000,pt:{kind:"入院外"}});
+let S=fresh(),handle=null,dirty=false,timer;
+const $=id=>document.getElementById(id);
+const FT=[{description:"JSON",accept:{"application/json":[".json"]}}];
+const setStat=()=>{$("stat").textContent=(handle?"接続中: "+handle.name:"ファイル未接続")+(dirty?" ●未保存":" (保存済み)")};
+async function write(){if(!handle)return;const w=await handle.createWritable();await w.write(JSON.stringify(S,null,1));await w.close();dirty=false;setStat();}
+const save=()=>{dirty=true;setStat();if(handle){clearTimeout(timer);timer=setTimeout(()=>write().catch(e=>alert("保存失敗: "+e)),500)}};
+function download(){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:"application/json"}));a.download="receipt-trainer.json";a.click();dirty=false;setStat();}
+function loadText(t){try{const d=JSON.parse(t);if(!d.master)throw 0;S=d;S.pt=S.pt||{kind:"入院外"};dirty=false;renderCase();renderMaster();setStat()}catch(x){alert("形式が不正です")}}
+async function saveAs(){if(!window.showSaveFilePicker)return download();
+ try{handle=await showSaveFilePicker({suggestedName:"receipt-trainer.json",types:FT});await write()}catch(e){if(e.name!=="AbortError")alert(e)}}
+window.addEventListener("beforeunload",e=>{if(dirty){e.preventDefault();e.returnValue=""}});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const SKN={11:"初診",12:"再診",13:"医学管理",14:"在宅",21:"内服",22:"屯服",23:"外用",24:"調剤",25:"処方",26:"麻毒",27:"調基",31:"皮下筋肉内注射",32:"静脈内注射",33:"その他注射",40:"処置",50:"手術・麻酔",60:"検査・病理",70:"画像診断",80:"その他",90:"入院基本料・加算",92:"特定入院料・その他",97:"食事・生活療養"};
+const SKD={"初・再診":12,"医学管理":13,"投薬":21,"注射":33,"処置":40,"手術":50,"麻酔":50,"検査":60,"病理診断":60,"画像診断":70,"リハビリ":80,"食事":97,"入院料等":90,"その他":80};
+const skOf=m=>m.sk||SKD[m.cat]||80;
+const skOpts=(v)=>`<option value="">(区分から自動)</option>`+Object.entries(SKN).map(([k,n])=>`<option value=${k}${String(v)===k?" selected":""}>${k} ${n}</option>`).join("");
+const g5=y=>Math.ceil(Math.round(y*100)/1000-0.5-1e-9); // 五捨五超入
+const find=id=>S.master.find(m=>m.id===id);
+
+function calc(l){const m=find(l.item);if(!m)return{pts:0,yen:0,ok:false};
+ const v=parseFloat(m.val);if(isNaN(v))return{pts:0,yen:0,ok:false};
+ if(m.type==="pt")return{pts:v*l.qty,yen:0,ok:true};
+ if(m.type==="drug")return{pts:g5(v*l.qty),yen:0,ok:true};
+ return{pts:0,yen:v*l.qty,ok:true};}
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+ document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+ ["case","master","pinfo","rcpt","data"].forEach(t=>$(t).hidden=t!==b.dataset.t);
+ if(b.dataset.t==="case")renderCase();if(b.dataset.t==="pinfo")renderP();if(b.dataset.t==="rcpt")renderRcpt();});
+
+function fillSelect(){$("nsk").innerHTML=skOpts("");const nv=$("ncat").value;$("ncat").innerHTML=CATS.map(c=>`<option>${c}</option>`).join("");if(nv)$("ncat").value=nv;$("litem").innerHTML=CATS.map(c=>{const ms=S.master.filter(m=>m.cat===c);
+ return ms.length?`<optgroup label="${c}">${ms.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join("")}</optgroup>`:""}).join("");}
+
+function renderCase(){
+ $("pname").value=S.pname;$("ratio").value=S.ratio;$("mealpay").value=S.mealpay;fillSelect();
+ const ls=[...S.lines].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+ $("lines").innerHTML="<tr><th>日付</th><th>区分</th><th>項目</th><th class=n>数量</th><th class=n>点数</th><th>メモ</th><th></th></tr>"+
+ ls.map(l=>{const m=find(l.item)||{name:"(削除済)",cat:""},c=calc(l);
+  return`<tr><td>${l.date||""}</td><td>${m.cat}</td><td>${esc(m.name)}</td><td class=n>${l.qty}</td><td class=n>${c.ok?(m.type==="meal"?c.yen+"円":c.pts):'<span class=warn>単価未入力</span>'}</td><td>${esc(l.memo||"")}</td><td><button class=btn data-d="${l.id}">×</button></td></tr>`}).join("");
+ $("lines").querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{S.lines=S.lines.filter(l=>l.id!=b.dataset.d);save();renderCase()});
+ const by={};let tp=0,ty=0,miss=0,meals=0;
+ S.lines.forEach(l=>{const m=find(l.item);if(!m)return;const c=calc(l);if(!c.ok){miss++;return}
+  by[m.cat]=by[m.cat]||{p:0,n:0};by[m.cat].p+=c.pts;by[m.cat].n++;tp+=c.pts;ty+=c.yen;if(m.type==="meal")meals+=l.qty;});
+ $("sum").innerHTML="<tr><th>区分</th><th class=n>件数</th><th class=n>点数</th></tr>"+
+  CATS.filter(c=>by[c]).map(c=>`<tr><td>${c}</td><td class=n>${by[c].n}</td><td class=n>${by[c].p}</td></tr>`).join("");
+ const r=parseFloat(S.ratio),pay=Math.round(tp*10*r/10)*10,mealPay=meals*S.mealpay;
+ $("result").innerHTML=`<p class=tot>合計 ${tp} 点(${tp*10}円)　窓口負担(医療分) ${pay.toLocaleString()}円</p>
+ <p>食事療養: ${meals}食 / 食事療養費総額 ${ty.toLocaleString()}円 / 標準負担 ${mealPay.toLocaleString()}円</p>
+ <p class=tot>窓口合計(概算) ${(pay+mealPay).toLocaleString()}円</p>
+ ${miss?`<p class=warn>単価未入力の行が ${miss} 件あり、合計に含まれていません。</p>`:""}
+ <p class=mut>負担額は10円未満四捨五入。高額療養費・公費・食事標準負担の減額等は未対応。</p>`;}
+
+function newItem(){const name=$("nname").value.trim();if(!name){alert("名称を入力してください");return null}
+ const v=$("nval").value;if(v===""&&!confirm("点数/単価が空欄です。このまま登録しますか?"))return null;
+ const m={id:"m"+(S.n++),cat:$("ncat").value,name,type:$("ntype").value,val:v,sk:$("nsk").value};S.master.push(m);save();
+ $("nname").value="";$("nval").value="";return m}
+const PF=[["month","請求年月(令和○年○月分)"],["hosp","医療機関名"],["hcode","医療機関コード"],["insno","保険者番号"],["kigo","被保険者 記号"],["ban","被保険者 番号"],["sex","性別(男/女)"],["birth","生年月日"],["koh1","公費負担者番号①"],["koh1j","受給者番号①"],["koh2","公費負担者番号②"],["koh2j","受給者番号②"],["tokki","特記事項"],["shokumu","職務上の事由"],["b1","傷病名(1)"],["b1d","診療開始日(1)"],["b2","傷病名(2)"],["b2d","診療開始日(2)"],["b3","傷病名(3)"],["b3d","診療開始日(3)"],["tenki","転帰(治ゆ/死亡/中止)"],["jitsu","診療実日数(保険)"],["nyuin","入院年月日(入院のみ)"],["bed","区分(精神/結核/療養/一般)"],["gen","減免・猶予"],["kogaku","高額療養費(円)"]];
+function renderP(){const P=S.pt;$("kind").value=P.kind||"入院外";
+ $("pgrid").innerHTML=PF.map(([k,l])=>`<label>${l}<input data-k="${k}" value="${esc(P[k]||"")}"></label>`).join("");
+ $("pgrid").querySelectorAll("input").forEach(i=>i.onchange=()=>{S.pt[i.dataset.k]=i.value;save()});}
+$("kind").onchange=()=>{S.pt.kind=$("kind").value;save()};
+function renderRcpt(){const P=S.pt,nyu=P.kind==="入院",agg={};let tp=0,meals=0,my=0;
+ S.lines.forEach(l=>{const m=find(l.item);if(!m)return;const c=calc(l);if(!c.ok)return;const k=skOf(m),a=agg[k]=agg[k]||{p:0,t:0,it:{}};
+  a.p+=c.pts;tp+=c.pts;if(m.type!=="drug")a.t+=l.qty;if(m.type==="meal"){meals+=l.qty;my+=c.yen}
+  const x=a.it[m.id]=a.it[m.id]||{n:m.name,q:0,p:0,y:0,meal:m.type==="meal"};x.q+=l.qty;x.p+=c.pts;x.y+=c.yen;});
+ const rows=Object.keys(SKN).filter(k=>nyu||k<90||agg[k]);
+ const r=parseFloat(S.ratio),pay=Math.round(tp*10*r/10)*10,mealPay=meals*S.mealpay,v=k=>esc(P[k]||"");
+ const miss=PF.filter(([k])=>!P[k]&&!(!nyu&&k==="nyuin")&&!["koh1","koh1j","koh2","koh2j","tokki","shokumu","gen","kogaku","b2","b2d","b3","b3d","bed"].includes(k)).map(x=>x[1]);
+ if(!S.pname)miss.unshift("患者名");
+ $("chk").innerHTML=miss.length?"未入力: "+miss.join("、"):"";
+ $("rview").innerHTML=`<div class=rc>
+ <table><tr><td class=big>診療報酬明細書</td><td>(医科${nyu?"入院":"入院外"})</td><td>令和 ${v("month")||"　年　月分"}</td><td>${v("hosp")}　${v("hcode")}</td></tr></table>
+ <table><tr><td>保険者番号 ${v("insno")}</td><td>記号 ${v("kigo")}　番号 ${v("ban")}</td><td>給付割合 ${Math.round((1-r)*100)}%</td></tr>
+ <tr><td>公費① ${v("koh1")} / ${v("koh1j")}</td><td>公費② ${v("koh2")} / ${v("koh2j")}</td><td>特記 ${v("tokki")}　職務上 ${v("shokumu")}</td></tr>
+ <tr><td colspan=2>氏名 <b>${esc(S.pname)}</b>　${v("sex")}　${v("birth")}</td><td>${nyu?"入院 "+v("nyuin")+"　"+v("bed"):""}</td></tr></table>
+ <table><tr><th>傷病名</th><th>診療開始日</th><th>転帰</th><th>診療実日数</th></tr>
+ ${[1,2,3].map(i=>`<tr><td>(${i}) ${v("b"+i)}</td><td>${v("b"+i+"d")}</td><td>${i==1?v("tenki"):""}</td><td>${i==1?v("jitsu"):""}</td></tr>`).join("")}</table>
+ <table><tr><th style="width:150px">診療識別</th><th class=n style="width:60px">回数</th><th class=n style="width:70px">点数</th><th>摘要</th></tr>
+ ${rows.map(k=>{const a=agg[k];return`<tr><td>${k} ${SKN[k]}</td><td class=n>${a?a.t||"":""}</td><td class=n>${a?a.p:""}</td><td>${a?Object.values(a.it).map(x=>esc(x.n)+" ×"+x.q+(x.meal?" "+x.y+"円":" "+x.p+"点")).join(" / "):""}</td></tr>`}).join("")}</table>
+ <table><tr><td>請求点 <b>${tp}</b> 点</td><td>一部負担金額 <b>${pay.toLocaleString()}</b> 円</td><td>減免 ${v("gen")}　高額療養費 ${v("kogaku")}円</td></tr>
+ ${nyu?`<tr><td>食事 ${meals}食 × ${S.mealpay}円</td><td>標準負担額 <b>${mealPay.toLocaleString()}</b> 円</td><td>食事療養費総額 ${my.toLocaleString()}円</td></tr>`:""}</table></div>`;}
+$("nreg").onclick=()=>{if(newItem()){renderCase();renderMaster()}};
+$("nregadd").onclick=()=>{const q=parseFloat($("lqty").value);if(isNaN(q)){alert("数量を入力してください");return}
+ const m=newItem();if(!m)return;S.lines.push({id:S.n++,date:$("ldate").value,item:m.id,qty:q,memo:$("lmemo").value});save();renderCase();renderMaster()};
+$("add").onclick=()=>{const q=parseFloat($("lqty").value);if(!$("litem").value||isNaN(q))return;
+ S.lines.push({id:S.n++,date:$("ldate").value,item:$("litem").value,qty:q,memo:$("lmemo").value});save();renderCase();};
+["pname","ratio","mealpay"].forEach(k=>$(k).onchange=()=>{S[k]=k==="mealpay"?+$(k).value:$(k).value;save();renderCase()});
+
+function renderMaster(){
+ $("mtab").innerHTML="<colgroup><col style=width:120px><col><col style=width:100px><col style=width:100px><col style=width:150px><col style=width:44px></colgroup><tr><th>区分</th><th>名称</th><th>種別</th><th class=n>点数/単価/円</th><th>診療識別</th><th></th></tr>"+
+ S.master.map(m=>`<tr data-i="${m.id}"><td><select data-f=cat>${CATS.map(c=>`<option${c===m.cat?" selected":""}>${c}</option>`).join("")}</select></td>
+ <td><input data-f=name value="${esc(m.name)}"></td>
+ <td><select data-f=type>${[["pt","点数"],["drug","薬剤"],["meal","食事"]].map(([v,t])=>`<option value=${v}${v===m.type?" selected":""}>${t}</option>`).join("")}</select></td>
+ <td class=n><input data-f=val value="${m.val}" type=number step=any></td>
+ <td><select data-f=sk>${skOpts(m.sk)}</select></td>
+ <td><button class=btn data-x>×</button></td></tr>`).join("");
+ $("mtab").querySelectorAll("tr[data-i]").forEach(tr=>{const m=find(tr.dataset.i);
+  tr.querySelectorAll("[data-f]").forEach(e=>e.onchange=()=>{m[e.dataset.f]=e.value;save()});
+  tr.querySelector("[data-x]").onclick=()=>{S.master=S.master.filter(x=>x!==m);save();renderMaster()};});}
+$("madd").onclick=()=>{S.master.unshift({id:"m"+(S.n++),cat:"その他",name:"新規項目",type:"pt",val:""});save();renderMaster();};
+$("mclr").onclick=()=>{if(confirm("マスタの項目を全て削除します。症例の行は残りますが「削除済」表示になります。")){S.master=[];save();renderMaster();renderCase()}};
+document.querySelector('[data-t=master]').addEventListener("click",renderMaster);
+
+$("open").onclick=async()=>{
+ if(!window.showOpenFilePicker)return $("imp").click();
+ try{const [h]=await showOpenFilePicker({types:FT});await h.requestPermission({mode:"readwrite"});
+  loadText(await (await h.getFile()).text());handle=h;setStat()}catch(e){if(e.name!=="AbortError")alert(e)}};
+$("imp").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{handle=null;loadText(r.result)};r.readAsText(f)};
+$("saveb").onclick=()=>handle?write().catch(e=>alert(e)):saveAs();
+$("saveas").onclick=saveAs;
+$("reset").onclick=()=>{if(confirm("マスタも症例も初期状態に戻します。(接続中のファイルは、次の保存で上書きされます)")){S=fresh();save();renderCase();renderMaster()}};
+renderCase();renderMaster();setStat();
+</script>
+</body>
+</html>
